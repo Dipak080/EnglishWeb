@@ -79,6 +79,14 @@
     vertical-align:middle;
   }
   .meaning{font-size:14px; color:var(--muted); margin-top:2px}
+  .say{
+    flex:0 0 auto; width:38px; height:38px; border-radius:10px; cursor:pointer;
+    border:1px solid var(--line); background:var(--card2); color:var(--accent);
+    display:grid; place-items:center; margin-top:2px;
+  }
+  .say:active{transform:scale(.92)}
+  .say svg{width:20px; height:20px}
+  .say.speaking{background:var(--accent); color:#06283d; border-color:var(--accent)}
   .empty{text-align:center; color:var(--muted); padding:40px 0}
   footer{text-align:center; font-size:11px; color:var(--muted); padding:20px}
 </style>
@@ -102,10 +110,24 @@
 </div>
 
 <main id="list"></main>
-<footer>Tip: tap the box to mark a word learned. Your ticks stay saved in this browser.</footer>
+<footer>Tip: tap the box to mark a word learned, or the 🔊 button to hear it. Your ticks stay saved in this browser.</footer>
 
 <script>
 const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="#06283d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+const SPEAKER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
+
+function speak(text, btn){
+  if(!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'en-US';
+  u.rate = 0.92;
+  if(btn){
+    btn.classList.add('speaking');
+    u.onend = u.onerror = () => btn.classList.remove('speaking');
+  }
+  speechSynthesis.speak(u);
+}
 let DATA = {};
 let current = Number(localStorage.getItem('vocab_level')) || 1;
 let hideDone = false;
@@ -155,12 +177,14 @@ function render(){
         '<div><span class="no">'+w.no+'.</span><span class="word">'+w.word+'</span>' +
         (w.type?'<span class="type">'+w.type+'</span>':'') + '</div>' +
         '<div class="meaning">'+(w.meaning||'')+'</div>' +
-      '</div>';
+      '</div>' +
+      '<button class="say" title="Pronounce">'+SPEAKER_SVG+'</button>';
     row.querySelector('.chk').onclick = () => {
       if(done.has(w.no)) done.delete(w.no); else done.add(w.no);
       saveDone(current, done);
       render();
     };
+    row.querySelector('.say').onclick = (e) => { e.stopPropagation(); speak(w.word, e.currentTarget); };
     list.appendChild(row);
   });
 

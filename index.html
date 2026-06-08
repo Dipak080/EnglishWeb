@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>English Vocabulary — 10 Levels</title>
+<style>
+  :root{
+    --bg:#0f172a; --card:#1e293b; --card2:#273449; --text:#e2e8f0;
+    --muted:#94a3b8; --accent:#38bdf8; --done:#22c55e; --line:#334155;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--text); line-height:1.5;
+  }
+  header{
+    position:sticky; top:0; z-index:20; background:rgba(15,23,42,.95);
+    backdrop-filter:blur(8px); border-bottom:1px solid var(--line);
+    padding:14px 16px;
+  }
+  header h1{font-size:18px; font-weight:700}
+  header p{font-size:12px; color:var(--muted); margin-top:2px}
+
+  .levels{
+    display:flex; gap:8px; overflow-x:auto; padding:10px 16px;
+    border-bottom:1px solid var(--line); -webkit-overflow-scrolling:touch;
+  }
+  .lvl-btn{
+    flex:0 0 auto; cursor:pointer; border:1px solid var(--line);
+    background:var(--card); color:var(--text); border-radius:999px;
+    padding:8px 14px; font-size:13px; font-weight:600; white-space:nowrap;
+    display:flex; flex-direction:column; align-items:center; gap:2px;
+  }
+  .lvl-btn small{font-size:10px; color:var(--muted); font-weight:500}
+  .lvl-btn.active{background:var(--accent); color:#06283d; border-color:var(--accent)}
+  .lvl-btn.active small{color:#06283d}
+
+  .toolbar{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    padding:12px 16px;
+  }
+  .toolbar input[type=search]{
+    flex:1; min-width:140px; background:var(--card); border:1px solid var(--line);
+    color:var(--text); padding:9px 12px; border-radius:8px; font-size:14px;
+  }
+  .progress-wrap{flex-basis:100%; }
+  .bar{height:8px; background:var(--card); border-radius:999px; overflow:hidden}
+  .bar > span{display:block; height:100%; width:0; background:var(--done); transition:width .3s}
+  .progress-txt{font-size:12px; color:var(--muted); margin-top:4px}
+  .chip{
+    cursor:pointer; font-size:12px; background:var(--card); border:1px solid var(--line);
+    color:var(--muted); border-radius:8px; padding:8px 10px;
+  }
+  .chip.on{color:var(--accent); border-color:var(--accent)}
+
+  main{padding:0 16px 60px; max-width:760px; margin:0 auto}
+  .row{
+    display:flex; align-items:flex-start; gap:12px; padding:12px;
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    margin-bottom:8px; transition:opacity .2s;
+  }
+  .row.done{background:var(--card2); border-color:#14532d}
+  .row.done .word{text-decoration:line-through; color:var(--muted)}
+  .chk{
+    flex:0 0 auto; width:26px; height:26px; border-radius:7px; cursor:pointer;
+    border:2px solid var(--line); background:transparent; display:grid; place-items:center;
+    margin-top:2px;
+  }
+  .row.done .chk{background:var(--done); border-color:var(--done)}
+  .chk svg{width:16px; height:16px; opacity:0; }
+  .row.done .chk svg{opacity:1}
+  .info{flex:1; min-width:0}
+  .word{font-size:16px; font-weight:700}
+  .no{color:var(--muted); font-weight:500; font-size:13px; margin-right:6px}
+  .type{
+    display:inline-block; font-size:11px; color:var(--accent);
+    background:rgba(56,189,248,.12); padding:1px 7px; border-radius:6px; margin-left:6px;
+    vertical-align:middle;
+  }
+  .meaning{font-size:14px; color:var(--muted); margin-top:2px}
+  .empty{text-align:center; color:var(--muted); padding:40px 0}
+  footer{text-align:center; font-size:11px; color:var(--muted); padding:20px}
+</style>
+</head>
+<body>
+<header>
+  <h1>English Vocabulary — 10 Levels</h1>
+  <p>3000 words · easy → hard · progress saved on this device</p>
+</header>
+
+<nav class="levels" id="levels"></nav>
+
+<div class="toolbar">
+  <input type="search" id="search" placeholder="Search word or meaning…">
+  <button class="chip" id="hideDone">Hide done</button>
+  <button class="chip" id="reset">Reset level</button>
+  <div class="progress-wrap">
+    <div class="bar"><span id="barFill"></span></div>
+    <div class="progress-txt" id="progTxt"></div>
+  </div>
+</div>
+
+<main id="list"></main>
+<footer>Tip: tap the box to mark a word learned. Your ticks stay saved in this browser.</footer>
+
+<script>
+const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="#06283d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+let DATA = {};
+let current = Number(localStorage.getItem('vocab_level')) || 1;
+let hideDone = false;
+
+const $ = s => document.querySelector(s);
+
+function doneKey(lvl){ return 'vocab_done_' + lvl; }
+function getDone(lvl){
+  try { return new Set(JSON.parse(localStorage.getItem(doneKey(lvl)) || '[]')); }
+  catch(e){ return new Set(); }
+}
+function saveDone(lvl, set){
+  localStorage.setItem(doneKey(lvl), JSON.stringify([...set]));
+}
+
+function buildLevels(){
+  const nav = $('#levels');
+  nav.innerHTML = '';
+  for(let i=1;i<=10;i++){
+    const done = getDone(i).size;
+    const b = document.createElement('button');
+    b.className = 'lvl-btn' + (i===current ? ' active':'');
+    b.innerHTML = 'Level ' + i + '<small>' + done + '/300</small>';
+    b.onclick = () => { current = i; localStorage.setItem('vocab_level', i); render(); };
+    nav.appendChild(b);
+  }
+}
+
+function render(){
+  buildLevels();
+  const words = DATA[current] || [];
+  const done = getDone(current);
+  const q = $('#search').value.trim().toLowerCase();
+  const list = $('#list');
+  list.innerHTML = '';
+
+  let shown = 0;
+  words.forEach(w => {
+    if(hideDone && done.has(w.no)) return;
+    if(q && !(w.word.toLowerCase().includes(q) || (w.meaning||'').toLowerCase().includes(q))) return;
+    shown++;
+    const row = document.createElement('div');
+    row.className = 'row' + (done.has(w.no) ? ' done':'');
+    row.innerHTML =
+      '<div class="chk">'+CHECK_SVG+'</div>' +
+      '<div class="info">' +
+        '<div><span class="no">'+w.no+'.</span><span class="word">'+w.word+'</span>' +
+        (w.type?'<span class="type">'+w.type+'</span>':'') + '</div>' +
+        '<div class="meaning">'+(w.meaning||'')+'</div>' +
+      '</div>';
+    row.querySelector('.chk').onclick = () => {
+      if(done.has(w.no)) done.delete(w.no); else done.add(w.no);
+      saveDone(current, done);
+      render();
+    };
+    list.appendChild(row);
+  });
+
+  if(shown===0){
+    list.innerHTML = '<div class="empty">No words match.</div>';
+  }
+
+  const total = words.length;
+  const d = done.size;
+  $('#barFill').style.width = total ? (d/total*100)+'%' : '0';
+  $('#progTxt').textContent = d + ' / ' + total + ' learned in Level ' + current +
+    '  (' + (total?Math.round(d/total*100):0) + '%)';
+}
+
+$('#search').addEventListener('input', render);
+$('#hideDone').onclick = function(){
+  hideDone = !hideDone; this.classList.toggle('on', hideDone); render();
+};
+$('#reset').onclick = function(){
+  if(confirm('Reset all ticks in Level ' + current + '?')){
+    localStorage.removeItem(doneKey(current)); render();
+  }
+};
+
+fetch('vocab.json')
+  .then(r => r.json())
+  .then(d => { DATA = d; render(); })
+  .catch(err => {
+    $('#list').innerHTML = '<div class="empty">Could not load vocab.json.<br>' +
+      'Run this site through a local server (see note below), not by double-clicking the file.</div>';
+  });
+</script>
+</body>
+</html>

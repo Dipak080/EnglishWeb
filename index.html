@@ -26,6 +26,42 @@
   }
   header h1{font-size:18px; font-weight:700}
   header p{font-size:12px; color:var(--muted); margin-top:2px}
+  .head-row{display:flex; align-items:center; justify-content:space-between; gap:10px}
+  #langSelect{
+    flex:0 0 auto; max-width:42%; background:var(--card2); color:var(--text);
+    border:1px solid var(--line); border-radius:10px; padding:8px 10px; font-size:13px;
+  }
+
+  /* Word detail modal */
+  .overlay{
+    position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.6);
+    display:flex; align-items:flex-end; justify-content:center; padding:0;
+  }
+  .overlay.hidden{display:none}
+  .sheet{
+    width:100%; max-width:600px; background:var(--card); border:1px solid var(--line);
+    border-radius:18px 18px 0 0; padding:20px; max-height:85vh; overflow-y:auto;
+    animation:slideUp .2s ease;
+  }
+  @keyframes slideUp{from{transform:translateY(30px);opacity:.4}to{transform:translateY(0);opacity:1}}
+  .sheet-head{display:flex; align-items:flex-start; gap:12px}
+  .sheet-word{font-size:26px; font-weight:800}
+  .sheet-type{font-size:12px; color:var(--accent); background:rgba(56,189,248,.12); padding:2px 8px; border-radius:6px}
+  .sheet-close{margin-left:auto; background:var(--card2); border:1px solid var(--line); color:var(--text);
+    width:34px; height:34px; border-radius:10px; cursor:pointer; font-size:18px; flex:0 0 auto}
+  .block{margin-top:16px}
+  .block .lbl{font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-bottom:4px}
+  .block .val{font-size:17px}
+  .block .val.big{font-size:22px; font-weight:700; color:var(--accent)}
+  .block .en{color:var(--text)}
+  .loading{color:var(--muted); font-style:italic; font-size:14px}
+  .sheet .say{display:inline-grid; vertical-align:middle; margin-left:8px; width:32px; height:32px}
+  .sheet-mark{
+    width:100%; margin-top:20px; padding:13px; border-radius:12px; font-size:15px; font-weight:700;
+    cursor:pointer; border:1px solid var(--done); background:rgba(34,197,94,.15); color:#bbf7d0;
+  }
+  .sheet-mark.done{background:var(--done); color:#06283d}
+  .info{cursor:pointer}
 
   .levels{
     display:flex; gap:8px; overflow-x:auto; padding:10px 16px;
@@ -172,8 +208,33 @@
 </head>
 <body>
 <header>
-  <h1>English Vocabulary — 10 Levels</h1>
-  <p>3000 words · easy → hard · progress saved on this device</p>
+  <div class="head-row">
+    <div>
+      <h1>English Vocabulary — 10 Levels</h1>
+      <p>3000 words · tap a word for translation</p>
+    </div>
+    <select id="langSelect" title="Translation language">
+      <option value="">No translation</option>
+      <option value="bn">বাংলা Bengali</option>
+      <option value="hi">हिन्दी Hindi</option>
+      <option value="ur">اردو Urdu</option>
+      <option value="ta">தமிழ் Tamil</option>
+      <option value="te">తెలుగు Telugu</option>
+      <option value="mr">मराठी Marathi</option>
+      <option value="gu">ગુજરાતી Gujarati</option>
+      <option value="pa">ਪੰਜਾਬੀ Punjabi</option>
+      <option value="kn">ಕನ್ನಡ Kannada</option>
+      <option value="ml">മലയാളം Malayalam</option>
+      <option value="or">ଓଡ଼ିଆ Odia</option>
+      <option value="es">Español Spanish</option>
+      <option value="fr">Français French</option>
+      <option value="de">Deutsch German</option>
+      <option value="ar">العربية Arabic</option>
+      <option value="zh-CN">中文 Chinese</option>
+      <option value="ja">日本語 Japanese</option>
+      <option value="ru">Русский Russian</option>
+    </select>
+  </div>
 </header>
 
 <section class="daily">
@@ -219,7 +280,11 @@
 
 <div id="quizView" class="quiz hidden"></div>
 
-<footer>Tip: tap the box to mark a word learned, or the 🔊 button to hear it. Your ticks stay saved in this browser.</footer>
+<div class="overlay hidden" id="overlay">
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<footer>Tip: tap the box to mark a word learned, tap the word for translation, or the 🔊 button to hear it.</footer>
 
 <script>
 const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="#06283d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
@@ -390,6 +455,7 @@ function render(){
       render();
     };
     row.querySelector('.say').onclick = (e) => { e.stopPropagation(); speak(w.word, e.currentTarget); };
+    row.querySelector('.info').onclick = () => openWord(w);
     list.appendChild(row);
   });
 
@@ -539,6 +605,100 @@ fetch('vocab.json')
     $('#list').innerHTML = '<div class="empty">Could not load vocab.json.<br>' +
       'Run this site through a local server (see note below), not by double-clicking the file.</div>';
   });
+
+/* ---------- Language + translation + word detail ---------- */
+const langSelect = $('#langSelect');
+langSelect.value = localStorage.getItem('vocab_lang') || '';
+langSelect.onchange = () => localStorage.setItem('vocab_lang', langSelect.value);
+function getLang(){ return localStorage.getItem('vocab_lang') || ''; }
+function langName(){ const o = langSelect.options[langSelect.selectedIndex]; return o ? o.textContent.trim() : ''; }
+
+const trCache = {}; // {lang: {text: translation}}
+async function translate(text, lang){
+  if(!lang) return text;
+  trCache[lang] = trCache[lang] || {};
+  if(trCache[lang][text] !== undefined) return trCache[lang][text];
+  const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=' +
+    lang + '&dt=t&q=' + encodeURIComponent(text);
+  const r = await fetch(url);
+  const data = await r.json();
+  const out = (data[0] || []).map(s => s[0]).join('');
+  trCache[lang][text] = out;
+  return out;
+}
+
+// A real example sentence from the free dictionary API, else a simple template.
+async function exampleSentence(w){
+  try{
+    const r = await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(w.word));
+    if(r.ok){
+      const data = await r.json();
+      for(const entry of data)
+        for(const m of (entry.meanings || []))
+          for(const d of (m.definitions || []))
+            if(d.example) return d.example.charAt(0).toUpperCase() + d.example.slice(1).replace(/\.?$/, '.');
+    }
+  }catch(e){}
+  return templateSentence(w);
+}
+function templateSentence(w){
+  const word = w.word, t = (w.type || '').toLowerCase();
+  if(t.startsWith('verb')) return 'I like to ' + word + ' every day.';
+  if(t.startsWith('adj'))  return 'It was a very ' + word + ' moment.';
+  if(t.startsWith('adv'))  return 'She did it ' + word + '.';
+  if(t.startsWith('pron')) return word.charAt(0).toUpperCase() + word.slice(1) + ' am here now.';
+  if(t.startsWith('prep')) return 'The cat is ' + word + ' the box.';
+  if(t.startsWith('conj')) return 'I stayed home ' + word + ' it rained.';
+  if(t.startsWith('det') || t.startsWith('art')) return 'Please pass ' + word + ' book.';
+  return 'This is a good example of the word "' + word + '".';
+}
+
+const overlay = $('#overlay');
+overlay.onclick = (e) => { if(e.target === overlay) closeWord(); };
+function closeWord(){ overlay.classList.add('hidden'); }
+
+function openWord(w){
+  const lang = getLang();
+  const done = getDone(current);
+  const sayBtn = '<button class="say" title="Pronounce">' + SPEAKER_SVG + '</button>';
+  $('#sheet').innerHTML =
+    '<div class="sheet-head">' +
+      '<div><span class="sheet-word">' + w.word + '</span> ' +
+        (w.type ? '<span class="sheet-type">' + w.type + '</span>' : '') + sayBtn + '</div>' +
+      '<button class="sheet-close" title="Close">✕</button>' +
+    '</div>' +
+    '<div class="block"><div class="lbl">Meaning (English)</div><div class="val en">' + (w.meaning || '') + '</div></div>' +
+    (lang ? '<div class="block"><div class="lbl">' + langName() + '</div><div class="val big" id="wTrans"><span class="loading">translating…</span></div></div>' : '') +
+    '<div class="block"><div class="lbl">Example (English)</div><div class="val en" id="exEn"><span class="loading">loading…</span></div></div>' +
+    (lang ? '<div class="block"><div class="lbl">Example (' + langName() + ')</div><div class="val" id="exTr"><span class="loading">translating…</span></div></div>' : '') +
+    '<button class="sheet-mark' + (done.has(w.no) ? ' done' : '') + '" id="markBtn">' +
+      (done.has(w.no) ? '✓ Learned (tap to unmark)' : 'Mark as learned') + '</button>';
+
+  overlay.classList.remove('hidden');
+
+  $('#sheet').querySelector('.say').onclick = () => speak(w.word);
+  $('#sheet').querySelector('.sheet-close').onclick = closeWord;
+  $('#markBtn').onclick = () => {
+    const d = getDone(current);
+    const nowDone = !d.has(w.no);
+    if(nowDone) d.add(w.no); else d.delete(w.no);
+    saveDone(current, d); recordToggle(current, w.no, nowDone);
+    render(); closeWord();
+  };
+
+  // Async fills
+  if(lang){
+    translate(w.word, lang).then(t => { const el = $('#wTrans'); if(el) el.textContent = t; })
+      .catch(() => { const el = $('#wTrans'); if(el) el.innerHTML = '<span class="loading">offline</span>'; });
+  }
+  exampleSentence(w).then(sentence => {
+    const en = $('#exEn'); if(en) en.textContent = sentence;
+    if(lang){
+      translate(sentence, lang).then(t => { const el = $('#exTr'); if(el) el.textContent = t; })
+        .catch(() => { const el = $('#exTr'); if(el) el.innerHTML = '<span class="loading">offline</span>'; });
+    }
+  });
+}
 
 // Register service worker for offline / installable app
 if('serviceWorker' in navigator){

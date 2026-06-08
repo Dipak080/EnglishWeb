@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>English Vocabulary — 10 Levels</title>
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
   :root{
     --bg:#0f172a; --card:#1e293b; --card2:#273449; --text:#e2e8f0;
@@ -126,6 +131,42 @@
   .goal-info{font-size:12px; color:var(--accent); flex-basis:100%}
   .goal-info.behind{color:#fbbf24}
 
+  .tabs{display:flex; gap:8px; margin-top:12px}
+  .tab{
+    flex:1; cursor:pointer; text-align:center; padding:9px; border-radius:10px;
+    font-size:14px; font-weight:700; border:1px solid var(--line);
+    background:var(--card); color:var(--muted);
+  }
+  .tab.active{background:var(--accent); color:#06283d; border-color:var(--accent)}
+
+  .hidden{display:none !important}
+
+  /* Quiz */
+  .quiz{max-width:760px; margin:16px auto; padding:0 16px 60px}
+  .quiz-bar{display:flex; justify-content:space-between; align-items:center; font-size:13px; color:var(--muted); margin-bottom:14px}
+  .quiz-card{
+    background:var(--card); border:1px solid var(--line); border-radius:16px;
+    padding:26px 20px; text-align:center;
+  }
+  .quiz-prompt-label{font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px}
+  .quiz-prompt{font-size:22px; font-weight:700; margin:8px 0 4px}
+  .quiz-type{font-size:12px; color:var(--accent)}
+  .opts{display:grid; gap:10px; margin-top:22px}
+  .opt{
+    cursor:pointer; padding:14px; border-radius:12px; font-size:16px; font-weight:600;
+    border:1px solid var(--line); background:var(--card2); color:var(--text); text-align:left;
+  }
+  .opt:disabled{cursor:default}
+  .opt.correct{background:rgba(34,197,94,.18); border-color:var(--done); color:#bbf7d0}
+  .opt.wrong{background:rgba(239,68,68,.18); border-color:#ef4444; color:#fecaca}
+  .quiz-next{
+    width:100%; margin-top:16px; padding:14px; border-radius:12px; font-size:16px; font-weight:700;
+    cursor:pointer; border:none; background:var(--accent); color:#06283d;
+  }
+  .quiz-result{text-align:center; padding:30px 0}
+  .quiz-result .score{font-size:40px; font-weight:800; color:var(--done)}
+  .quiz-toggle{display:flex; gap:8px; justify-content:center; margin-bottom:14px}
+
   footer{text-align:center; font-size:11px; color:var(--muted); padding:20px}
 </style>
 </head>
@@ -155,21 +196,29 @@
     <input id="mInput" type="number" min="1" max="60" value="5"> months
     <span class="goal-info" id="goalInfo"></span>
   </div>
+  <div class="tabs">
+    <div class="tab active" id="tabLearn">📖 Learn</div>
+    <div class="tab" id="tabQuiz">📝 Quiz</div>
+  </div>
 </section>
 
 <nav class="levels" id="levels"></nav>
 
-<div class="toolbar">
-  <input type="search" id="search" placeholder="Search word or meaning…">
-  <button class="chip" id="hideDone">Hide done</button>
-  <button class="chip" id="reset">Reset level</button>
-  <div class="progress-wrap">
-    <div class="bar"><span id="barFill"></span></div>
-    <div class="progress-txt" id="progTxt"></div>
+<div id="learnView">
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Search word or meaning…">
+    <button class="chip" id="hideDone">Hide done</button>
+    <button class="chip" id="reset">Reset level</button>
+    <div class="progress-wrap">
+      <div class="bar"><span id="barFill"></span></div>
+      <div class="progress-txt" id="progTxt"></div>
+    </div>
   </div>
+  <main id="list"></main>
 </div>
 
-<main id="list"></main>
+<div id="quizView" class="quiz hidden"></div>
+
 <footer>Tip: tap the box to mark a word learned, or the 🔊 button to hear it. Your ticks stay saved in this browser.</footer>
 
 <script>
@@ -384,6 +433,105 @@ $('#reset').onclick = function(){
   }
 };
 
+/* ---------- View switching ---------- */
+let view = 'learn';
+function setView(v){
+  view = v;
+  $('#tabLearn').classList.toggle('active', v === 'learn');
+  $('#tabQuiz').classList.toggle('active', v === 'quiz');
+  $('#learnView').classList.toggle('hidden', v !== 'learn');
+  $('#quizView').classList.toggle('hidden', v !== 'quiz');
+  if(v === 'quiz') startQuiz();
+}
+$('#tabLearn').onclick = () => setView('learn');
+$('#tabQuiz').onclick  = () => setView('quiz');
+
+/* ---------- Quiz ---------- */
+let quiz = null;
+const QUIZ_LEN = 10;
+
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0; [a[i],a[j]]=[a[j],a[i]];} return a; }
+
+function startQuiz(){
+  const words = (DATA[current] || []).filter(w => w.meaning);
+  if(words.length < 4){
+    $('#quizView').innerHTML = '<div class="empty">Not enough words to quiz here.</div>';
+    return;
+  }
+  const picked = shuffle([...words]).slice(0, Math.min(QUIZ_LEN, words.length));
+  quiz = { q: picked, i: 0, score: 0, dir: Math.random() < 0.5 ? 'wm' : 'mw' };
+  renderQuiz();
+}
+
+function renderQuiz(){
+  const v = $('#quizView');
+  if(quiz.i >= quiz.q.length){
+    const pct = Math.round(quiz.score / quiz.q.length * 100);
+    v.innerHTML =
+      '<div class="quiz-result">' +
+        '<div class="score">' + quiz.score + ' / ' + quiz.q.length + '</div>' +
+        '<p style="color:var(--muted);margin:8px 0 20px">You scored ' + pct + '%</p>' +
+        '<button class="quiz-next" id="again">Try another 10</button>' +
+      '</div>';
+    $('#again').onclick = startQuiz;
+    render();
+    return;
+  }
+
+  const w = quiz.q[quiz.i];
+  const askWord = quiz.dir === 'mw';          // show meaning, pick word
+  const pool = (DATA[current] || []).filter(x => x.no !== w.no && x.meaning);
+  const distract = shuffle([...pool]).slice(0, 3);
+  const options = shuffle([w, ...distract]);
+
+  v.innerHTML =
+    '<div class="quiz-bar"><span>Level ' + current + ' · Question ' + (quiz.i + 1) + ' / ' + quiz.q.length + '</span>' +
+      '<span>Score ' + quiz.score + '</span></div>' +
+    '<div class="quiz-card">' +
+      '<div class="quiz-prompt-label">' + (askWord ? 'What word means…' : 'What does this mean?') + '</div>' +
+      '<div class="quiz-prompt">' + (askWord ? w.meaning : w.word) + '</div>' +
+      '<div class="quiz-type">' + (w.type || '') + '</div>' +
+      '<div class="opts" id="opts"></div>' +
+    '</div>';
+
+  const optsBox = $('#opts');
+  options.forEach(o => {
+    const b = document.createElement('button');
+    b.className = 'opt';
+    b.textContent = askWord ? o.word : o.meaning;
+    b.onclick = () => answer(b, o, w, optsBox);
+    optsBox.appendChild(b);
+  });
+}
+
+function answer(btn, chosen, correct, box){
+  if(box.dataset.locked) return;
+  box.dataset.locked = '1';
+  const right = chosen.no === correct.no;
+  if(right){
+    quiz.score++;
+    btn.classList.add('correct');
+    // a correct answer counts as learned — feeds your daily target
+    const done = getDone(current);
+    if(!done.has(correct.no)){ done.add(correct.no); saveDone(current, done); recordToggle(current, correct.no, true); }
+  } else {
+    btn.classList.add('wrong');
+  }
+  [...box.children].forEach(b => {
+    const label = b.textContent;
+    if((quiz.dir === 'mw' && label === correct.word) || (quiz.dir === 'wm' && label === correct.meaning)){
+      b.classList.add('correct');
+    }
+    b.disabled = true;
+  });
+  const next = document.createElement('button');
+  next.className = 'quiz-next';
+  next.textContent = quiz.i + 1 >= quiz.q.length ? 'See result →' : 'Next question →';
+  next.onclick = () => { quiz.i++; renderQuiz(); };
+  box.parentElement.appendChild(next);
+  speak(correct.word);
+}
+
 fetch('vocab.json')
   .then(r => r.json())
   .then(d => { DATA = d; render(); })
@@ -391,6 +539,11 @@ fetch('vocab.json')
     $('#list').innerHTML = '<div class="empty">Could not load vocab.json.<br>' +
       'Run this site through a local server (see note below), not by double-clicking the file.</div>';
   });
+
+// Register service worker for offline / installable app
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
 </script>
 </body>
 </html>

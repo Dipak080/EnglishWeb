@@ -111,6 +111,20 @@
   .target-set input::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
   .daily .bar{margin-top:12px}
   .daily-foot{font-size:11px; color:var(--muted); margin-top:8px}
+  .goal-row{
+    display:flex; align-items:center; flex-wrap:wrap; gap:6px;
+    font-size:13px; color:var(--text); margin-top:12px;
+    border-top:1px dashed var(--line); padding-top:12px;
+  }
+  .goal-row input{
+    width:52px; text-align:center; background:var(--bg); border:1px solid var(--line);
+    color:var(--text); border-radius:8px; padding:5px 0; font-size:14px; font-weight:700;
+    -moz-appearance:textfield;
+  }
+  .goal-row input::-webkit-outer-spin-button,
+  .goal-row input::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
+  .goal-info{font-size:12px; color:var(--accent); flex-basis:100%}
+  .goal-info.behind{color:#fbbf24}
 
   footer{text-align:center; font-size:11px; color:var(--muted); padding:20px}
 </style>
@@ -136,6 +150,11 @@
   </div>
   <div class="bar"><span id="dayFill"></span></div>
   <div class="daily-foot" id="dailyFoot"></div>
+  <div class="goal-row">
+    🎯 Finish all 3000 in
+    <input id="mInput" type="number" min="1" max="60" value="5"> months
+    <span class="goal-info" id="goalInfo"></span>
+  </div>
 </section>
 
 <nav class="levels" id="levels"></nav>
@@ -183,6 +202,20 @@ function todayStr(){ return dateStr(new Date()); }
 function getTarget(){ return Math.max(1, Number(localStorage.getItem('vocab_target')) || 20); }
 function setTarget(n){ localStorage.setItem('vocab_target', Math.min(300, Math.max(1, n))); }
 
+function getMode(){ return localStorage.getItem('vocab_mode') || 'deadline'; }
+function monthsFromNow(m){ const d = new Date(); d.setMonth(d.getMonth() + m); return dateStr(d); }
+function getMonths(){ return Math.max(1, Number(localStorage.getItem('vocab_months')) || 5); }
+function getDeadline(){
+  let dl = localStorage.getItem('vocab_deadline');
+  if(!dl){ dl = monthsFromNow(getMonths()); localStorage.setItem('vocab_deadline', dl); }
+  return dl;
+}
+function daysUntil(dateString){
+  const a = new Date(todayStr() + 'T00:00:00');
+  const b = new Date(dateString + 'T00:00:00');
+  return Math.max(1, Math.round((b - a) / 86400000));
+}
+
 function getDaily(){
   try { return JSON.parse(localStorage.getItem('vocab_daily') || '{}'); }
   catch(e){ return {}; }
@@ -211,22 +244,48 @@ function computeStreak(daily, target){
   return streak;
 }
 
+function fmtDate(s){
+  return new Date(s + 'T00:00:00').toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'});
+}
+
 function renderDaily(){
-  const target = getTarget();
   const daily = getDaily();
   const todayCount = (daily[todayStr()] || []).length;
+  let total = 0; for(let i=1;i<=10;i++) total += getDone(i).size;
+  const remaining = Math.max(0, 3000 - total);
+
+  $('#mInput').value = getMonths();
+  const info = $('#goalInfo');
+
+  // In deadline mode, the per-day target auto-adjusts from words left and days left.
+  if(getMode() === 'deadline'){
+    const dl = getDeadline();
+    const daysLeft = daysUntil(dl);
+    const need = remaining === 0 ? 0 : Math.ceil(remaining / daysLeft);
+    setTarget(need || 1);
+    if(remaining === 0){
+      info.textContent = '🎉 All 3000 words learned!';
+      info.classList.remove('behind');
+    } else {
+      const behind = todayCount < need;
+      info.textContent = '→ ' + need + ' words/day to finish by ' + fmtDate(dl) +
+        ' (' + daysLeft + ' days, ' + remaining + ' left)';
+      info.classList.toggle('behind', behind);
+    }
+  } else {
+    info.textContent = 'Manual pace — ~' + Math.ceil(remaining / getTarget()) + ' days left at ' + getTarget() + '/day';
+    info.classList.remove('behind');
+  }
+
+  const target = getTarget();
   $('#tInput').value = target;
   $('#todayCount').innerHTML = todayCount + ' / ' + target;
-  const pct = Math.min(100, todayCount / target * 100);
-  $('#dayFill').style.width = pct + '%';
+  $('#dayFill').style.width = Math.min(100, todayCount / target * 100) + '%';
   const s = computeStreak(daily, target);
-  $('#streak').textContent = '🔥 ' + s + (s === 1 ? ' day streak' : ' day streak');
-  let total = 0; for(let i=1;i<=10;i++) total += getDone(i).size;
-  const remaining = 3000 - total;
-  const days = Math.ceil(remaining / target);
+  $('#streak').textContent = '🔥 ' + s + ' day streak';
   $('#dailyFoot').textContent = todayCount >= target
     ? '✅ Target reached today! ' + total + ' / 3000 learned overall.'
-    : total + ' / 3000 learned · ~' + days + ' days left at ' + target + '/day';
+    : total + ' / 3000 learned overall';
 }
 
 function doneKey(lvl){ return 'vocab_done_' + lvl; }
@@ -297,10 +356,23 @@ function render(){
   renderDaily();
 }
 
-function changeTarget(n){ setTarget(n); renderDaily(); }
+// Manual override: tweaking the number switches off deadline auto-pacing.
+function changeTarget(n){
+  localStorage.setItem('vocab_mode', 'manual');
+  setTarget(n); renderDaily();
+}
 $('#tPlus').onclick  = () => changeTarget(getTarget() + 5);
 $('#tMinus').onclick = () => changeTarget(getTarget() - 5);
 $('#tInput').onchange = function(){ changeTarget(Number(this.value)); };
+
+// Setting a finish deadline turns auto-pacing back on.
+$('#mInput').onchange = function(){
+  const m = Math.min(60, Math.max(1, Number(this.value) || 5));
+  localStorage.setItem('vocab_mode', 'deadline');
+  localStorage.setItem('vocab_months', m);
+  localStorage.setItem('vocab_deadline', monthsFromNow(m));
+  renderDaily();
+};
 
 $('#search').addEventListener('input', render);
 $('#hideDone').onclick = function(){

@@ -88,6 +88,30 @@
   .say svg{width:20px; height:20px}
   .say.speaking{background:var(--accent); color:#06283d; border-color:var(--accent)}
   .empty{text-align:center; color:var(--muted); padding:40px 0}
+
+  .daily{
+    max-width:760px; margin:12px auto 0; background:var(--card);
+    border:1px solid var(--line); border-radius:14px; padding:14px 16px;
+  }
+  .daily-row{display:flex; align-items:center; justify-content:space-between; gap:12px}
+  .daily-big{font-size:22px; font-weight:800}
+  .daily-big b{color:var(--done)}
+  .daily-sub{font-size:12px; color:var(--muted); margin-top:2px}
+  .target-set{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted)}
+  .target-set button{
+    width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:18px;
+    border:1px solid var(--line); background:var(--card2); color:var(--text); line-height:1;
+  }
+  .target-set input{
+    width:46px; text-align:center; background:var(--bg); border:1px solid var(--line);
+    color:var(--text); border-radius:8px; padding:6px 0; font-size:15px; font-weight:700;
+    -moz-appearance:textfield;
+  }
+  .target-set input::-webkit-outer-spin-button,
+  .target-set input::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
+  .daily .bar{margin-top:12px}
+  .daily-foot{font-size:11px; color:var(--muted); margin-top:8px}
+
   footer{text-align:center; font-size:11px; color:var(--muted); padding:20px}
 </style>
 </head>
@@ -96,6 +120,23 @@
   <h1>English Vocabulary — 10 Levels</h1>
   <p>3000 words · easy → hard · progress saved on this device</p>
 </header>
+
+<section class="daily">
+  <div class="daily-row">
+    <div>
+      <div class="daily-big"><span id="todayCount">0</span> <span style="color:var(--muted);font-weight:600;font-size:16px">today</span></div>
+      <div class="daily-sub"><span id="streak">🔥 0 days</span> · goal hit when bar is full</div>
+    </div>
+    <div class="target-set">
+      <span>Daily<br>target</span>
+      <button id="tMinus" title="Less">−</button>
+      <input id="tInput" type="number" min="1" max="300" value="20">
+      <button id="tPlus" title="More">+</button>
+    </div>
+  </div>
+  <div class="bar"><span id="dayFill"></span></div>
+  <div class="daily-foot" id="dailyFoot"></div>
+</section>
 
 <nav class="levels" id="levels"></nav>
 
@@ -133,6 +174,60 @@ let current = Number(localStorage.getItem('vocab_level')) || 1;
 let hideDone = false;
 
 const $ = s => document.querySelector(s);
+
+function dateStr(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function todayStr(){ return dateStr(new Date()); }
+
+function getTarget(){ return Math.max(1, Number(localStorage.getItem('vocab_target')) || 20); }
+function setTarget(n){ localStorage.setItem('vocab_target', Math.min(300, Math.max(1, n))); }
+
+function getDaily(){
+  try { return JSON.parse(localStorage.getItem('vocab_daily') || '{}'); }
+  catch(e){ return {}; }
+}
+function saveDaily(d){ localStorage.setItem('vocab_daily', JSON.stringify(d)); }
+
+// log the date a word was learned (or remove it when un-ticked)
+function recordToggle(lvl, no, isDone){
+  const daily = getDaily();
+  const key = lvl + '-' + no;
+  for(const day in daily){
+    const i = daily[day].indexOf(key);
+    if(i > -1){ daily[day].splice(i,1); if(!daily[day].length) delete daily[day]; }
+  }
+  if(isDone){ (daily[todayStr()] = daily[todayStr()] || []).push(key); }
+  saveDaily(daily);
+}
+
+function computeStreak(daily, target){
+  let streak = 0;
+  const d = new Date();
+  if((daily[todayStr()] || []).length < target){ d.setDate(d.getDate()-1); }
+  while((daily[dateStr(d)] || []).length >= target){
+    streak++; d.setDate(d.getDate()-1);
+  }
+  return streak;
+}
+
+function renderDaily(){
+  const target = getTarget();
+  const daily = getDaily();
+  const todayCount = (daily[todayStr()] || []).length;
+  $('#tInput').value = target;
+  $('#todayCount').innerHTML = todayCount + ' / ' + target;
+  const pct = Math.min(100, todayCount / target * 100);
+  $('#dayFill').style.width = pct + '%';
+  const s = computeStreak(daily, target);
+  $('#streak').textContent = '🔥 ' + s + (s === 1 ? ' day streak' : ' day streak');
+  let total = 0; for(let i=1;i<=10;i++) total += getDone(i).size;
+  const remaining = 3000 - total;
+  const days = Math.ceil(remaining / target);
+  $('#dailyFoot').textContent = todayCount >= target
+    ? '✅ Target reached today! ' + total + ' / 3000 learned overall.'
+    : total + ' / 3000 learned · ~' + days + ' days left at ' + target + '/day';
+}
 
 function doneKey(lvl){ return 'vocab_done_' + lvl; }
 function getDone(lvl){
@@ -180,8 +275,10 @@ function render(){
       '</div>' +
       '<button class="say" title="Pronounce">'+SPEAKER_SVG+'</button>';
     row.querySelector('.chk').onclick = () => {
-      if(done.has(w.no)) done.delete(w.no); else done.add(w.no);
+      const nowDone = !done.has(w.no);
+      if(nowDone) done.add(w.no); else done.delete(w.no);
       saveDone(current, done);
+      recordToggle(current, w.no, nowDone);
       render();
     };
     row.querySelector('.say').onclick = (e) => { e.stopPropagation(); speak(w.word, e.currentTarget); };
@@ -197,7 +294,13 @@ function render(){
   $('#barFill').style.width = total ? (d/total*100)+'%' : '0';
   $('#progTxt').textContent = d + ' / ' + total + ' learned in Level ' + current +
     '  (' + (total?Math.round(d/total*100):0) + '%)';
+  renderDaily();
 }
+
+function changeTarget(n){ setTarget(n); renderDaily(); }
+$('#tPlus').onclick  = () => changeTarget(getTarget() + 5);
+$('#tMinus').onclick = () => changeTarget(getTarget() - 5);
+$('#tInput').onchange = function(){ changeTarget(Number(this.value)); };
 
 $('#search').addEventListener('input', render);
 $('#hideDone').onclick = function(){

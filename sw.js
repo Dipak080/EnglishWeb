@@ -1,5 +1,5 @@
 // Simple offline cache. Bump CACHE when files change to refresh.
-const CACHE = 'vocab-v3';
+const CACHE = 'vocab-v4';
 const ASSETS = [
   './',
   './index.html',

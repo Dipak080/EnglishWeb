@@ -128,6 +128,15 @@
   .say:active{transform:scale(.92)}
   .say svg{width:20px; height:20px}
   .say.speaking{background:var(--accent); color:#06283d; border-color:var(--accent)}
+  .star{
+    flex:0 0 auto; width:38px; height:38px; border-radius:10px; cursor:pointer;
+    border:1px solid var(--line); background:var(--card2); color:var(--muted);
+    display:grid; place-items:center; margin-top:2px;
+  }
+  .star:active{transform:scale(.92)}
+  .star svg{width:20px; height:20px}
+  .star.on{color:#fbbf24; border-color:#fbbf24; background:rgba(251,191,36,.12)}
+  .marked-head{max-width:760px; margin:14px auto 0; padding:0 16px; font-size:13px; color:var(--muted)}
   .empty{text-align:center; color:var(--muted); padding:40px 0}
 
   .daily{
@@ -259,6 +268,7 @@
   </div>
   <div class="tabs">
     <div class="tab active" id="tabLearn">📖 Learn</div>
+    <div class="tab" id="tabMarked">⭐ Marked <span id="markCount"></span></div>
     <div class="tab" id="tabQuiz">📝 Quiz</div>
   </div>
 </section>
@@ -278,6 +288,8 @@
   <main id="list"></main>
 </div>
 
+<div id="markedView" class="hidden"></div>
+
 <div id="quizView" class="quiz hidden"></div>
 
 <div class="overlay hidden" id="overlay">
@@ -289,6 +301,21 @@
 <script>
 const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="#06283d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
 const SPEAKER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
+const STAR_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+
+/* ---------- Marked (bookmarked) words ---------- */
+function markKey(lvl, no){ return lvl + '-' + no; }
+function getMarked(){
+  try { return new Set(JSON.parse(localStorage.getItem('vocab_marked') || '[]')); }
+  catch(e){ return new Set(); }
+}
+function saveMarked(set){ localStorage.setItem('vocab_marked', JSON.stringify([...set])); }
+function isMarked(lvl, no){ return getMarked().has(markKey(lvl, no)); }
+function toggleMark(lvl, no){
+  const m = getMarked(); const k = markKey(lvl, no);
+  if(m.has(k)) m.delete(k); else m.add(k);
+  saveMarked(m);
+}
 
 function speak(text, btn){
   if(!('speechSynthesis' in window)) return;
@@ -446,6 +473,7 @@ function render(){
         (w.type?'<span class="type">'+w.type+'</span>':'') + '</div>' +
         '<div class="meaning">'+(w.meaning||'')+'</div>' +
       '</div>' +
+      '<button class="star'+(isMarked(current,w.no)?' on':'')+'" title="Mark to review">'+STAR_SVG+'</button>' +
       '<button class="say" title="Pronounce">'+SPEAKER_SVG+'</button>';
     row.querySelector('.chk').onclick = () => {
       const nowDone = !done.has(w.no);
@@ -453,6 +481,11 @@ function render(){
       saveDone(current, done);
       recordToggle(current, w.no, nowDone);
       render();
+    };
+    row.querySelector('.star').onclick = (e) => {
+      e.stopPropagation(); toggleMark(current, w.no);
+      e.currentTarget.classList.toggle('on', isMarked(current, w.no));
+      updateMarkCount();
     };
     row.querySelector('.say').onclick = (e) => { e.stopPropagation(); speak(w.word, e.currentTarget); };
     row.querySelector('.info').onclick = () => openWord(w);
@@ -504,13 +537,69 @@ let view = 'learn';
 function setView(v){
   view = v;
   $('#tabLearn').classList.toggle('active', v === 'learn');
+  $('#tabMarked').classList.toggle('active', v === 'marked');
   $('#tabQuiz').classList.toggle('active', v === 'quiz');
   $('#learnView').classList.toggle('hidden', v !== 'learn');
+  $('#markedView').classList.toggle('hidden', v !== 'marked');
   $('#quizView').classList.toggle('hidden', v !== 'quiz');
   if(v === 'quiz') startQuiz();
+  if(v === 'marked') renderMarked();
 }
-$('#tabLearn').onclick = () => setView('learn');
-$('#tabQuiz').onclick  = () => setView('quiz');
+$('#tabLearn').onclick  = () => setView('learn');
+$('#tabMarked').onclick = () => setView('marked');
+$('#tabQuiz').onclick   = () => setView('quiz');
+
+function updateMarkCount(){
+  const n = getMarked().size;
+  $('#markCount').textContent = n ? '(' + n + ')' : '';
+}
+
+/* ---------- Marked list ---------- */
+function renderMarked(){
+  updateMarkCount();
+  const marked = [...getMarked()];
+  const v = $('#markedView');
+  if(!marked.length){
+    v.innerHTML = '<div class="empty">No marked words yet.<br>Tap the ⭐ star on any word to save it here for review.</div>';
+    return;
+  }
+  // sort by level then number
+  const items = marked.map(k => { const [lvl, no] = k.split('-').map(Number); return {lvl, no}; })
+    .sort((a, b) => a.lvl - b.lvl || a.no - b.no);
+
+  let html = '<div class="marked-head">' + items.length + ' marked word' + (items.length>1?'s':'') + ' · tap the box to mark learned, the ⭐ to remove</div><main id="markedList"></main>';
+  v.innerHTML = html;
+  const list = $('#markedList');
+
+  items.forEach(it => {
+    const w = (DATA[it.lvl] || []).find(x => x.no === it.no);
+    if(!w) return;
+    const done = getDone(it.lvl);
+    const row = document.createElement('div');
+    row.className = 'row' + (done.has(w.no) ? ' done' : '');
+    row.innerHTML =
+      '<div class="chk">' + CHECK_SVG + '</div>' +
+      '<div class="info">' +
+        '<div><span class="no">L' + it.lvl + ' ·</span><span class="word">' + w.word + '</span>' +
+        (w.type ? '<span class="type">' + w.type + '</span>' : '') + '</div>' +
+        '<div class="meaning">' + (w.meaning || '') + '</div>' +
+      '</div>' +
+      '<button class="star on" title="Remove mark">' + STAR_SVG + '</button>' +
+      '<button class="say" title="Pronounce">' + SPEAKER_SVG + '</button>';
+    row.querySelector('.chk').onclick = () => {
+      const d = getDone(it.lvl);
+      const nowDone = !d.has(w.no);
+      if(nowDone) d.add(w.no); else d.delete(w.no);
+      saveDone(it.lvl, d); recordToggle(it.lvl, w.no, nowDone);
+      row.classList.toggle('done', nowDone);
+      renderDaily();
+    };
+    row.querySelector('.star').onclick = () => { toggleMark(it.lvl, w.no); renderMarked(); };
+    row.querySelector('.say').onclick = (e) => { e.stopPropagation(); speak(w.word, e.currentTarget); };
+    row.querySelector('.info').onclick = () => openWord(w, it.lvl);
+    list.appendChild(row);
+  });
+}
 
 /* ---------- Quiz ---------- */
 let quiz = null;
@@ -600,7 +689,7 @@ function answer(btn, chosen, correct, box){
 
 fetch('vocab.json')
   .then(r => r.json())
-  .then(d => { DATA = d; render(); })
+  .then(d => { DATA = d; render(); updateMarkCount(); })
   .catch(err => {
     $('#list').innerHTML = '<div class="empty">Could not load vocab.json.<br>' +
       'Run this site through a local server (see note below), not by double-clicking the file.</div>';
@@ -657,14 +746,16 @@ const overlay = $('#overlay');
 overlay.onclick = (e) => { if(e.target === overlay) closeWord(); };
 function closeWord(){ overlay.classList.add('hidden'); }
 
-function openWord(w){
+function openWord(w, lvl){
+  lvl = lvl || current;
   const lang = getLang();
-  const done = getDone(current);
+  const done = getDone(lvl);
   const sayBtn = '<button class="say" title="Pronounce">' + SPEAKER_SVG + '</button>';
+  const starBtn = '<button class="star' + (isMarked(lvl, w.no) ? ' on' : '') + '" title="Mark to review">' + STAR_SVG + '</button>';
   $('#sheet').innerHTML =
     '<div class="sheet-head">' +
       '<div><span class="sheet-word">' + w.word + '</span> ' +
-        (w.type ? '<span class="sheet-type">' + w.type + '</span>' : '') + sayBtn + '</div>' +
+        (w.type ? '<span class="sheet-type">' + w.type + '</span>' : '') + sayBtn + starBtn + '</div>' +
       '<button class="sheet-close" title="Close">✕</button>' +
     '</div>' +
     '<div class="block"><div class="lbl">Meaning (English)</div><div class="val en">' + (w.meaning || '') + '</div></div>' +
@@ -678,12 +769,18 @@ function openWord(w){
 
   $('#sheet').querySelector('.say').onclick = () => speak(w.word);
   $('#sheet').querySelector('.sheet-close').onclick = closeWord;
+  $('#sheet').querySelector('.star').onclick = (e) => {
+    toggleMark(lvl, w.no);
+    e.currentTarget.classList.toggle('on', isMarked(lvl, w.no));
+    updateMarkCount();
+  };
   $('#markBtn').onclick = () => {
-    const d = getDone(current);
+    const d = getDone(lvl);
     const nowDone = !d.has(w.no);
     if(nowDone) d.add(w.no); else d.delete(w.no);
-    saveDone(current, d); recordToggle(current, w.no, nowDone);
-    render(); closeWord();
+    saveDone(lvl, d); recordToggle(lvl, w.no, nowDone);
+    if(view === 'marked') renderMarked(); else render();
+    closeWord();
   };
 
   // Async fills
